@@ -1,0 +1,20 @@
+http:
+  routers:
+    wearables-http:
+      rule: "Host(`wearables.omarsamona.com`)"
+      entryPoints: [http]
+      service: wearables
+      middlewares: [redirect-https]
+    wearables-https:
+      rule: "Host(`wearables.omarsamona.com`)"
+      entryPoints: [https]
+      service: wearables
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "wearables.omarsamona.com"
+  services:
+    wearables:
+      loadBalancer:
+        servers:
+          - url: "http://ow-frontend:3000"

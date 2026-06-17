@@ -1,0 +1,24 @@
+http:
+  routers:
+    wearables-api-http:
+      rule: "Host(`wearables-api.omarsamona.com`)"
+      entryPoints: [http]
+      service: wearables-api
+      middlewares: [redirect-https]
+    wearables-api-https:
+      rule: "Host(`wearables-api.omarsamona.com`)"
+      entryPoints: [https]
+      service: wearables-api
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "wearables-api.omarsamona.com"
+  services:
+    wearables-api:
+      loadBalancer:
+        servers:
+          - url: "http://ow-backend:8000"
+        healthCheck:
+          path: /
+          interval: 10s
+          timeout: 3s
