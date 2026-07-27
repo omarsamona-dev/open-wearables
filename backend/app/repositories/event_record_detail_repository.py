@@ -17,7 +17,6 @@ from app.schemas.model_crud.activities import (
     EventRecordDetailCreate,
     EventRecordDetailUpdate,
 )
-from app.utils.duplicates import handle_duplicates
 from app.utils.exceptions import handle_exceptions
 
 
@@ -40,17 +39,27 @@ class EventRecordDetailRepository(
         return model(**creation_data)
 
     @handle_exceptions
-    @handle_duplicates
     def create(
         self,
         db_session: DbSession,
         creator: EventRecordDetailCreate,
         detail_type: DetailType = "workout",
     ) -> EventRecordDetail:
-        """Create a detail record using the appropriate polymorphic model."""
+        """Create a detail record using the appropriate polymorphic model.
+
+        Handles duplicates inline rather than via @handle_duplicates because
+        self.model is the abstract EventRecordDetail (no table) — the generic
+        decorator's inspect(self.model) would raise NoInspectionAvailable.
+        """
         detail = self._build_detail(creator, detail_type)
         db_session.add(detail)
-        db_session.commit()
+        try:
+            db_session.commit()
+        except IntegrityError as e:
+            db_session.rollback()
+            if existing := self.get_by_record_id(db_session, creator.record_id, detail_type):
+                return existing
+            raise
         db_session.refresh(detail)
         return detail
 
