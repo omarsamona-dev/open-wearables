@@ -660,6 +660,7 @@ class EventRecordRepository(
         rmssd_id = get_series_type_id(SeriesType.heart_rate_variability_rmssd)
         resp_id = get_series_type_id(SeriesType.respiratory_rate)
         spo2_id = get_series_type_id(SeriesType.oxygen_saturation)
+        rhr_id = get_series_type_id(SeriesType.resting_heart_rate)
 
         # Lateral subquery: for each sleep row, average physio data within
         # [min_start_time, max_end_time) — exact window, no date-grouping mismatch.
@@ -680,11 +681,14 @@ class EventRecordRepository(
                 func.avg(case((DataPointSeries.series_type_definition_id == spo2_id, DataPointSeries.value))).label(
                     "avg_spo2"
                 ),
+                func.avg(case((DataPointSeries.series_type_definition_id == rhr_id, DataPointSeries.value))).label(
+                    "avg_rhr"
+                ),
             )
             .join(DataSource, DataPointSeries.data_source_id == DataSource.id)
             .where(
                 DataSource.user_id == user_id,
-                DataPointSeries.series_type_definition_id.in_([hr_id, sdnn_id, rmssd_id, resp_id, spo2_id]),
+                DataPointSeries.series_type_definition_id.in_([hr_id, sdnn_id, rmssd_id, resp_id, spo2_id, rhr_id]),
                 DataPointSeries.recorded_at >= subquery.c.min_start_time,
                 DataPointSeries.recorded_at < subquery.c.max_end_time,
             )
@@ -715,6 +719,7 @@ class EventRecordRepository(
             physio_lateral.c.avg_hrv_rmssd,
             physio_lateral.c.avg_resp,
             physio_lateral.c.avg_spo2,
+            physio_lateral.c.avg_rhr,
         ).outerjoin(physio_lateral, true())
 
         # Handle cursor pagination
@@ -772,6 +777,7 @@ class EventRecordRepository(
                     "avg_hrv_rmssd": float(row.avg_hrv_rmssd) if row.avg_hrv_rmssd is not None else None,
                     "avg_resp": float(row.avg_resp) if row.avg_resp is not None else None,
                     "avg_spo2": float(row.avg_spo2) if row.avg_spo2 is not None else None,
+                    "avg_rhr": float(row.avg_rhr) if row.avg_rhr is not None else None,
                 }
             )
 

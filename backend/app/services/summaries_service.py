@@ -310,6 +310,8 @@ class SummariesService:
             avg_hrv_rmssd: float | None = result.get("avg_hrv_rmssd")
             avg_respiratory_rate: float | None = result.get("avg_resp")
             avg_spo2_percent: float | None = result.get("avg_spo2")
+            rhr_avg = result.get("avg_rhr")
+            resting_hr: int | None = int(round(rhr_avg)) if rhr_avg is not None else None
 
             raw_sessions = result.get("sessions") or []
             sessions = [
@@ -354,6 +356,7 @@ class SummariesService:
                 avg_hrv_rmssd_ms=avg_hrv_rmssd,
                 avg_respiratory_rate=avg_respiratory_rate,
                 avg_spo2_percent=avg_spo2_percent,
+                resting_heart_rate_bpm=resting_hr,
             )
             data.append(summary)
 
