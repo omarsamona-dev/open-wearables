@@ -348,8 +348,15 @@ class XMLService:
         # Reset stats for this parse run
         self.stats = XMLParseStats()
 
-        for event, elem in ET.iterparse(self.xml_path, events=("end",)):
-            if elem.tag == "Record" and event == "end":
+        context = ET.iterparse(self.xml_path, events=("start", "end"))
+        root = None
+        for event, elem in context:
+            if root is None:
+                root = elem
+                continue
+            if event != "end":
+                continue
+            if elem.tag == "Record":
                 if len(workouts) + len(time_series_records) + len(sleep_records) >= self.chunk_size:
                     self.log.info(
                         "Yielding chunk: %s time series records, %s workouts, %s sleep records \
@@ -383,6 +390,8 @@ class XMLService:
                             )
                             self.stats.sleep.skip(f"unknown_sleep_stage:{record.get('value')}")
                         elem.clear()
+                        if elem in root:
+                            root.remove(elem)
                         continue
 
                     record_create = self._create_record(record, uuid_user)
@@ -400,8 +409,10 @@ class XMLService:
                     self.stats.records.skip(f"unexpected_error:{type(e).__name__}")
                 finally:
                     elem.clear()
+                    if elem in root:
+                        root.remove(elem)
 
-            elif elem.tag == "Workout" and event == "end":
+            elif elem.tag == "Workout":
                 if len(workouts) + len(time_series_records) >= self.chunk_size:
                     self.log.info(
                         "Yielding chunk: %s time series records, %s workouts (skipped so far: %s records, %s workouts)",
@@ -438,6 +449,12 @@ class XMLService:
                     self.stats.workouts.skip(f"unexpected_error:{type(e).__name__}")
                 finally:
                     elem.clear()
+                    if elem in root:
+                        root.remove(elem)
+
+            else:
+                # Non-Record, non-Workout elements (ExportDate, Me, nested elements, etc.)
+                elem.clear()
 
         # yield remaining records and workout pairs
         log_structured(

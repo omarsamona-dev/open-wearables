@@ -56,17 +56,17 @@ class TimeSeriesService(
         samples: (list[TimeSeriesSampleCreate] | list[HeartRateSampleCreate] | list[StepSampleCreate]),
     ) -> WriteCounts:
         counts = self.crud.bulk_create(db_session, samples)  # ty:ignore[invalid-argument-type]
-        samples_copy = list(samples)
 
-        @sa_event.listens_for(db_session, "after_commit", once=True)
-        def _start_webhook_thread(session: DbSession) -> None:  # noqa: ARG001
-            if not svix_service.is_enabled():
-                return
-            threading.Thread(
-                target=self._emit_timeseries_webhooks,
-                args=(samples_copy,),
-                daemon=True,
-            ).start()
+        if svix_service.is_enabled():
+            samples_copy = list(samples)
+
+            @sa_event.listens_for(db_session, "after_commit", once=True)
+            def _start_webhook_thread(session: DbSession) -> None:  # noqa: ARG001
+                threading.Thread(
+                    target=self._emit_timeseries_webhooks,
+                    args=(samples_copy,),
+                    daemon=True,
+                ).start()
 
         return counts
 

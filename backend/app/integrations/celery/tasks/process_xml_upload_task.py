@@ -1,5 +1,4 @@
 import os
-import tempfile
 from logging import getLogger
 from pathlib import Path
 from typing import Any
@@ -23,20 +22,18 @@ log = getLogger(__name__)
 
 
 @shared_task
-def process_xml_upload(file_contents: bytes, filename: str, user_id: str) -> dict[str, Any]:
+def process_xml_upload(file_path: str, filename: str, user_id: str) -> dict[str, Any]:
     """
-    Process XML file and import to Postgres database.
+    Process XML file from shared volume and import to Postgres database.
 
     Args:
-        file_contents: XML file contents as bytes
+        file_path: Path to the XML file on the shared volume
         filename: Original filename
         user_id: User ID to associate with the data
 
     Returns:
         Dict with status, message, and import statistics
     """
-    temp_xml_file = None
-
     try:
         user_uuid: UUID | None = UUID(user_id)
     except (ValueError, TypeError):
@@ -55,13 +52,7 @@ def process_xml_upload(file_contents: bytes, filename: str, user_id: str) -> dic
 
     with SessionLocal() as db:
         try:
-            temp_dir = tempfile.gettempdir()
-            temp_xml_file = os.path.join(temp_dir, f"temp_import_{filename}")
-
-            with open(temp_xml_file, "wb") as f:
-                f.write(file_contents)
-
-            stats = _import_xml_data(db, temp_xml_file, user_id)
+            stats = _import_xml_data(db, file_path, user_id)
 
             if user_uuid is not None:
                 completed(
@@ -120,8 +111,8 @@ def process_xml_upload(file_contents: bytes, filename: str, user_id: str) -> dic
             raise e
 
         finally:
-            if temp_xml_file and os.path.exists(temp_xml_file):
-                os.remove(temp_xml_file)
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
 
 
 def _import_xml_data(db: Session, xml_path: str, user_id: str) -> XMLParseStats:
