@@ -34,7 +34,7 @@ def import_xml_presigned_url(
 
 
 @router.post("/users/{user_id}/import/apple/xml/direct")
-def import_xml_file(
+async def import_xml_file(
     user_id: str,
     file: UploadFile,
     _api_key: ApiKeyDep,
@@ -49,7 +49,7 @@ def import_xml_file(
     bytes_written = 0
     try:
         with open(dest_path, "wb") as out:
-            while chunk := file.file.read(8 * 1024 * 1024):  # 8 MB chunks
+            while chunk := await file.read(8 * 1024 * 1024):  # 8 MB chunks
                 bytes_written += len(chunk)
                 if bytes_written > MAX_UPLOAD_BYTES:
                     raise HTTPException(

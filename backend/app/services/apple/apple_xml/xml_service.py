@@ -455,6 +455,8 @@ class XMLService:
             else:
                 # Non-Record, non-Workout elements (ExportDate, Me, nested elements, etc.)
                 elem.clear()
+                if elem in root:
+                    root.remove(elem)
 
         # yield remaining records and workout pairs
         log_structured(
