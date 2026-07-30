@@ -1,0 +1,238 @@
+# CC-137 — VPS deploy of Open Wearables on coolify network with Traefik routing.
+#
+# URLs:
+#   Frontend:  https://wearables.omarsamona.com  (container port 3000)
+#   API:       https://wearables-api.omarsamona.com  (container port 8000)
+#
+# Secrets injected by `op run --env-file=op-refs.env` (no plaintext .env at runtime).
+# See deploy.sh for the canonical launch pattern.
+#
+# All containers join the `coolify` network so:
+#   - Traefik (coolify-proxy) can route to `ow-frontend` and `ow-backend`
+#   - Containers can reference each other by container_name
+
+services:
+  db:
+    image: postgres:18
+    container_name: ow-db
+    environment:
+      POSTGRES_DB: open-wearables
+      POSTGRES_USER: open-wearables
+      POSTGRES_PASSWORD: ${OW_DB_PASSWORD}
+    volumes:
+      - ow_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U open-wearables -d open-wearables"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  redis:
+    image: redis:8
+    container_name: ow-redis
+    volumes:
+      - ow_redis_data:/data
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ow-backend
+    image: ow-backend:latest
+    pull_policy: never
+    command: scripts/start/app.sh
+    environment:
+      # Database
+      DB_HOST: ow-db
+      DB_PORT: "5432"
+      DB_NAME: open-wearables
+      DB_USER: open-wearables
+      DB_PASSWORD: ${OW_DB_PASSWORD}
+      # Redis
+      REDIS_HOST: ow-redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      # App config
+      ENVIRONMENT: production
+      API_PORT: "8000"
+      API_BASE_URL: https://wearables-api.omarsamona.com
+      FRONTEND_URL: https://wearables.omarsamona.com
+      CORS_ORIGINS: '["https://wearables.omarsamona.com"]'
+      # Auth
+      SECRET_KEY: ${OW_SECRET_KEY}
+      # Admin seed
+      ADMIN_EMAIL: ${OW_ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${OW_ADMIN_PASSWORD}
+      # Email (Resend) — set OW_RESEND_API_KEY to "disabled" to skip email
+      RESEND_API_KEY: ${OW_RESEND_API_KEY}
+      EMAIL_FROM_ADDRESS: noreply@omarsamona.com
+      EMAIL_FROM_NAME: Open Wearables
+      # Sentry (disabled)
+      SENTRY_ENABLED: "False"
+      SENTRY_DSN: ""
+      # Svix
+      SVIX_SERVER_URL: http://ow-svix:8071
+      # Sync
+      SYNC_INTERVAL_SECONDS: "3600"
+      HISTORICAL_SYNC_ON_CONNECT: "true"
+      INGEST_WORKOUT_SAMPLES: "false"
+      # Strava
+      STRAVA_CLIENT_ID: ${OW_STRAVA_CLIENT_ID:-}
+      STRAVA_CLIENT_SECRET: ${OW_STRAVA_CLIENT_SECRET:-}
+      STRAVA_DEFAULT_SCOPE: activity:read_all,profile:read_all
+      STRAVA_WEBHOOK_VERIFY_TOKEN: ${OW_STRAVA_WEBHOOK_VERIFY_TOKEN:-}
+      # Fitbit (optional)
+      FITBIT_CLIENT_ID: ${OW_FITBIT_CLIENT_ID:-}
+      FITBIT_CLIENT_SECRET: ${OW_FITBIT_CLIENT_SECRET:-}
+      FITBIT_DEFAULT_SCOPE: activity heartrate sleep profile
+      # Garmin (optional)
+      GARMIN_CLIENT_ID: ${OW_GARMIN_CLIENT_ID:-}
+      GARMIN_CLIENT_SECRET: ${OW_GARMIN_CLIENT_SECRET:-}
+      # Oura
+      OURA_CLIENT_ID: ${OW_OURA_CLIENT_ID:-}
+      OURA_CLIENT_SECRET: ${OW_OURA_CLIENT_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - ow_xml_uploads:/data/xml-uploads
+    mem_limit: 4g
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  celery-worker:
+    container_name: ow-celery-worker
+    image: ow-backend:latest
+    pull_policy: never
+    command: scripts/start/worker.sh
+    volumes:
+      - ow_xml_uploads:/data/xml-uploads
+    mem_limit: 4g
+    environment:
+      DB_HOST: ow-db
+      DB_PORT: "5432"
+      DB_NAME: open-wearables
+      DB_USER: open-wearables
+      DB_PASSWORD: ${OW_DB_PASSWORD}
+      REDIS_HOST: ow-redis
+      REDIS_PORT: "6379"
+      SECRET_KEY: ${OW_SECRET_KEY}
+      ENVIRONMENT: production
+      API_BASE_URL: https://wearables-api.omarsamona.com
+      SVIX_SERVER_URL: http://ow-svix:8071
+      STRAVA_CLIENT_ID: ${OW_STRAVA_CLIENT_ID:-}
+      STRAVA_CLIENT_SECRET: ${OW_STRAVA_CLIENT_SECRET:-}
+      FITBIT_CLIENT_ID: ${OW_FITBIT_CLIENT_ID:-}
+      FITBIT_CLIENT_SECRET: ${OW_FITBIT_CLIENT_SECRET:-}
+      GARMIN_CLIENT_ID: ${OW_GARMIN_CLIENT_ID:-}
+      GARMIN_CLIENT_SECRET: ${OW_GARMIN_CLIENT_SECRET:-}
+      # Oura
+      OURA_CLIENT_ID: ${OW_OURA_CLIENT_ID:-}
+      OURA_CLIENT_SECRET: ${OW_OURA_CLIENT_SECRET:-}
+      RESEND_API_KEY: ${OW_RESEND_API_KEY}
+      SENTRY_ENABLED: "False"
+    depends_on:
+      - redis
+      - db
+      - app
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  celery-beat:
+    container_name: ow-celery-beat
+    image: ow-backend:latest
+    pull_policy: never
+    command: scripts/start/beat.sh
+    environment:
+      DB_HOST: ow-db
+      DB_PORT: "5432"
+      DB_NAME: open-wearables
+      DB_USER: open-wearables
+      DB_PASSWORD: ${OW_DB_PASSWORD}
+      REDIS_HOST: ow-redis
+      REDIS_PORT: "6379"
+      SECRET_KEY: ${OW_SECRET_KEY}
+      ENVIRONMENT: production
+      SENTRY_ENABLED: "False"
+    depends_on:
+      - redis
+      - db
+      - app
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  svix-server:
+    container_name: ow-svix
+    image: svix/svix-server:v1
+    entrypoint:
+      - sh
+      - -c
+      - |
+        : "$${SVIX_JWT_SECRET:=$$SECRET_KEY}"
+        export SVIX_JWT_SECRET
+        exec svix-server "$$@"
+      - --
+    command: ["--run-migrations"]
+    environment:
+      SECRET_KEY: ${OW_SECRET_KEY}
+      SVIX_DB_DSN: postgresql://open-wearables:${OW_DB_PASSWORD}@ow-db:5432/svix
+      SVIX_QUEUE_TYPE: redis
+      SVIX_REDIS_DSN: redis://ow-redis:6379/1
+      SVIX_CACHE_TYPE: redis
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      app:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "svix-server", "healthcheck", "http://localhost:8071"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: https://wearables-api.omarsamona.com
+    container_name: ow-frontend
+    image: ow-frontend:latest
+    pull_policy: never
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - coolify
+
+volumes:
+  ow_postgres_data:
+  ow_redis_data:
+  ow_xml_uploads:
+
+networks:
+  coolify:
+    external: true

@@ -1,4 +1,6 @@
 import json
+import os
+import uuid
 from json import JSONDecodeError
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
@@ -17,6 +19,9 @@ from app.services.apple.apple_xml.sns_service import sns_service
 
 router = APIRouter()
 
+XML_UPLOAD_DIR = "/data/xml-uploads"
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024  # 4 GB
+
 
 @router.post("/users/{user_id}/import/apple/xml/s3")
 def import_xml_presigned_url(
@@ -34,11 +39,30 @@ def import_xml_file(
     file: UploadFile,
     _api_key: ApiKeyDep,
 ) -> dict[str, str]:
-    """Import XML file into the database."""
-    file_contents = file.file.read()
+    """Stream uploaded XML to shared volume; enqueue only the file path via Celery."""
     filename = file.filename or "upload.xml"
+    unique_name = f"{uuid.uuid4().hex}_{filename}"
+    dest_path = os.path.join(XML_UPLOAD_DIR, unique_name)
 
-    task = process_xml_upload.delay(file_contents=file_contents, filename=filename, user_id=user_id)
+    os.makedirs(XML_UPLOAD_DIR, exist_ok=True)
+
+    bytes_written = 0
+    try:
+        with open(dest_path, "wb") as out:
+            while chunk := file.file.read(8 * 1024 * 1024):  # 8 MB chunks
+                bytes_written += len(chunk)
+                if bytes_written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"Upload exceeds {MAX_UPLOAD_BYTES} byte limit",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        if os.path.exists(dest_path):
+            os.remove(dest_path)
+        raise
+
+    task = process_xml_upload.delay(file_path=dest_path, filename=filename, user_id=user_id)
 
     return {
         "status": "processing",
