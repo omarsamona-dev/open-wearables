@@ -20,7 +20,7 @@ from app.services.apple.apple_xml.sns_service import sns_service
 router = APIRouter()
 
 XML_UPLOAD_DIR = "/data/xml-uploads"
-MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024  # 4 GB
+MAX_UPLOAD_BYTES = 2500 * 1024 * 1024  # 2.5 GB — measured safe ceiling (decision #592)
 
 
 @router.post("/users/{user_id}/import/apple/xml/s3")
