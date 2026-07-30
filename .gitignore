@@ -116,6 +116,7 @@ venv.bak/
 .env
 .env.*
 !.env.example
+op-refs.env
 
 # Spyder project settings
 .spyderproject
