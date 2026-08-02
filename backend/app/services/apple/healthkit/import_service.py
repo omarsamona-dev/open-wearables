@@ -140,8 +140,14 @@ class ImportService:
         self,
         request: SDKSyncRequest,
         user_id: str,
-    ) -> list[HeartRateSampleCreate | StepSampleCreate | TimeSeriesSampleCreate]:
+    ) -> tuple[list[HeartRateSampleCreate | StepSampleCreate | TimeSeriesSampleCreate], dict[str, int]]:
+        """Build time-series samples from SDK records.
+
+        Returns:
+            Tuple of (samples, skip_reasons) where skip_reasons maps reason string to count.
+        """
         time_series_samples: list[HeartRateSampleCreate | StepSampleCreate | TimeSeriesSampleCreate] = []
+        skip_reasons: dict[str, int] = {}
         user_uuid = UUID(user_id)
         provider = request.provider
 
@@ -152,6 +158,15 @@ class ImportService:
             series_type = get_series_type_from_metric_type(record_type)
 
             if not series_type:
+                reason = f"unsupported_type:{record_type}"
+                skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+                log_structured(
+                    self.log,
+                    "debug",
+                    "Skipping record with unsupported metric type",
+                    action="sdk_record_skip",
+                    metric_type=record_type,
+                )
                 continue
             value = self._normalize_unit(series_type, value, provider)
 
@@ -185,7 +200,7 @@ class ImportService:
                 case _:
                     time_series_samples.append(sample)
 
-        return time_series_samples
+        return time_series_samples, skip_reasons
 
     def _compute_aggregates(self, values: list[Decimal]) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
         if not values:
@@ -307,7 +322,8 @@ class ImportService:
                 records_saved += len(time_series_samples)
 
         # Process time series samples (records)
-        samples = self._build_statistic_bundles(request, user_id)
+        samples, skip_reasons = self._build_statistic_bundles(request, user_id)
+        records_skipped = sum(skip_reasons.values())
         if samples:
             self.timeseries_service.bulk_create_samples(db_session, samples)
             records_saved += len(samples)
@@ -323,6 +339,8 @@ class ImportService:
         return {
             "workouts_saved": workouts_saved,
             "records_saved": records_saved,
+            "records_skipped": records_skipped,
+            "records_skip_reasons": skip_reasons,
             "sleep_saved": sleep_saved,
         }
 
@@ -373,6 +391,29 @@ class ImportService:
             if connection:
                 self.user_connection_repo.update_last_synced_at(db_session, connection)
 
+            records_saved = saved_counts["records_saved"]
+            records_skipped = saved_counts["records_skipped"]
+            records_skip_reasons = saved_counts["records_skip_reasons"]
+
+            # Integrity check: landed + skipped must equal incoming.
+            # A gap here means a code path is dropping records silently.
+            records_accounted = records_saved + records_skipped
+            balance_ok = records_accounted == incoming_records
+            if not balance_ok:
+                log_structured(
+                    self.log,
+                    "error",
+                    "IMPORTER BALANCE FAIL: records_saved + records_skipped != incoming_records; silent drops detected",
+                    provider=f"{provider}",
+                    action=f"{provider}_sdk_balance_fail",
+                    batch_id=batch_id,
+                    user_id=user_id,
+                    incoming_records=incoming_records,
+                    records_saved=records_saved,
+                    records_skipped=records_skipped,
+                    unaccounted=incoming_records - records_accounted,
+                )
+
             # Log detailed processing results
             log_structured(
                 self.log,
@@ -385,7 +426,9 @@ class ImportService:
                 incoming_records=incoming_records,
                 incoming_workouts=incoming_workouts,
                 incoming_sleep=incoming_sleep,
-                records_saved=saved_counts["records_saved"],
+                records_saved=records_saved,
+                records_skipped=records_skipped,
+                records_skip_reasons=records_skip_reasons or None,
                 workouts_saved=saved_counts["workouts_saved"],
                 sleep_saved=saved_counts["sleep_saved"],
             )

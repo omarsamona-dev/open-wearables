@@ -178,8 +178,10 @@ class XMLService:
         metric_type = document.get("type", "")
         series_type = get_series_type_from_metric_type(metric_type)
 
-        # Skip unsupported metric types early (this is normal, not an error)
+        # Skip unsupported metric types; attribute every drop to the counter so
+        # the run summary stays self-consistent (Bug B fix).
         if series_type is None:
+            self.stats.records.skip(f"unsupported_type:{metric_type}")
             return None
 
         # Parse the value - skip record if invalid
@@ -379,6 +381,7 @@ class XMLService:
 
                     # Handle sleep records
                     if record.get("type") == "HKCategoryTypeIdentifierSleepAnalysis":
+                        self.stats.sleep.mark_read()
                         sleep_record = self._normalize_sleep_record(record)
                         if sleep_record is not None:
                             sleep_records.append(sleep_record)
@@ -394,6 +397,10 @@ class XMLService:
                             root.remove(elem)
                         continue
 
+                    # Count every non-sleep Record before dispatching; _create_record
+                    # is responsible for calling self.stats.records.skip() on all
+                    # failure paths so that read == processed + skipped always holds.
+                    self.stats.records.mark_read()
                     record_create = self._create_record(record, uuid_user)
                     if record_create is not None:
                         time_series_records.append(record_create)
@@ -477,9 +484,7 @@ class XMLService:
 
     def _log_parse_summary(self) -> None:
         """Log a summary of the parsing results."""
-        total_records = self.stats.records.processed + self.stats.records.skipped
         total_workouts = self.stats.workouts.processed + self.stats.workouts.skipped
-        total_sleep = self.stats.sleep.processed + self.stats.sleep.skipped
 
         log_structured(
             self.log,
@@ -487,13 +492,42 @@ class XMLService:
             "XML parsing complete",
             provider="apple_xml",
             task="process_xml_upload",
+            records_read=self.stats.records.read,
             records_processed=self.stats.records.processed,
-            total_records=total_records,
+            records_skipped=self.stats.records.skipped,
             workouts_processed=self.stats.workouts.processed,
             total_workouts=total_workouts,
+            sleep_read=self.stats.sleep.read,
             sleep_processed=self.stats.sleep.processed,
-            total_sleep=total_sleep,
+            sleep_skipped=self.stats.sleep.skipped,
         )
+
+        # Integrity check: every record seen must be accounted for.
+        # Imbalance means a code path is dropping records silently.
+        if not self.stats.records.is_balanced():
+            log_structured(
+                self.log,
+                "error",
+                "IMPORTER BALANCE FAIL: records read != processed + skipped; silent drops detected",
+                provider="apple_xml",
+                task="process_xml_upload",
+                records_read=self.stats.records.read,
+                records_processed=self.stats.records.processed,
+                records_skipped=self.stats.records.skipped,
+                unaccounted=self.stats.records.read - self.stats.records.processed - self.stats.records.skipped,
+            )
+        if not self.stats.sleep.is_balanced():
+            log_structured(
+                self.log,
+                "error",
+                "IMPORTER BALANCE FAIL: sleep read != processed + skipped; silent drops detected",
+                provider="apple_xml",
+                task="process_xml_upload",
+                sleep_read=self.stats.sleep.read,
+                sleep_processed=self.stats.sleep.processed,
+                sleep_skipped=self.stats.sleep.skipped,
+                unaccounted=self.stats.sleep.read - self.stats.sleep.processed - self.stats.sleep.skipped,
+            )
 
         if self.stats.any_skipped():
             log_structured(

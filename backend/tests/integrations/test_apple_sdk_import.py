@@ -591,7 +591,7 @@ class TestSDKImportUnitConversion:
             "apple",
             [self._record("HKQuantityTypeIdentifierBodyFatPercentage", 0.304)],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.body_fat_percentage
@@ -607,7 +607,7 @@ class TestSDKImportUnitConversion:
             "google",
             [self._record("BODY_FAT", 30.4)],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.body_fat_percentage
@@ -623,7 +623,7 @@ class TestSDKImportUnitConversion:
             "samsung",
             [self._record("BODY_FAT", 18.5)],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.body_fat_percentage
@@ -639,7 +639,7 @@ class TestSDKImportUnitConversion:
             "apple",
             [self._record("HKQuantityTypeIdentifierHeight", 1.7526)],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.height
@@ -655,7 +655,7 @@ class TestSDKImportUnitConversion:
             "google",
             [self._record("HEIGHT", 1.7526)],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.height
@@ -682,7 +682,7 @@ class TestSDKImportUnitConversion:
             "samsung",
             [self._record("BLOOD_GLUCOSE", 6.111, unit=unit)],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.blood_glucose
@@ -698,7 +698,7 @@ class TestSDKImportUnitConversion:
             "apple",
             [self._record("HKQuantityTypeIdentifierBloodGlucose", 105, unit="mg/dL")],
         )
-        samples = import_service._build_statistic_bundles(request, user_id)
+        samples, _ = import_service._build_statistic_bundles(request, user_id)
 
         assert len(samples) == 1
         assert samples[0].series_type == SeriesType.blood_glucose
