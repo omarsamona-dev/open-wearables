@@ -4,9 +4,13 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ParseMetric:
+    read: int = 0
     processed: int = 0
     skipped: int = 0
     reasons: Counter[str] = field(default_factory=Counter)
+
+    def mark_read(self) -> None:
+        self.read += 1
 
     def mark_processed(self) -> None:
         self.processed += 1
@@ -14,6 +18,10 @@ class ParseMetric:
     def skip(self, reason: str) -> None:
         self.skipped += 1
         self.reasons[reason] += 1
+
+    def is_balanced(self) -> bool:
+        """True when every read record is accounted for: processed + skipped == read."""
+        return self.read == self.processed + self.skipped
 
 
 @dataclass
