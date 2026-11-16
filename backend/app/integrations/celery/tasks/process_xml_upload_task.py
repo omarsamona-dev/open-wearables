@@ -15,7 +15,7 @@ from app.schemas.enums import ProviderName
 from app.schemas.providers.apple.apple_xml import XMLParseStats
 from app.schemas.sync_status import SyncSource, SyncStatus
 from app.services import event_record_service
-from app.services.apple.apple_xml.xml_service import XMLService
+from app.services.apple.apple_xml.xml_service import APPLE_HEALTH_XML_SOURCE, XMLService
 from app.services.apple.healthkit.sleep_service import handle_sleep_data
 from app.services.sync_status_service import completed, failed, new_run_id, started
 from app.services.timeseries_service import timeseries_service
@@ -189,6 +189,7 @@ def _save_activity_summaries(
         user_id=UUID(user_id),
         provider=ProviderName.APPLE,
         user_connection_id=None,
+        source=APPLE_HEALTH_XML_SOURCE,
     )
 
     values_list = []

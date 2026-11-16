@@ -27,6 +27,11 @@ from app.schemas.providers.mobile_sdk import (
 )
 from app.utils.structured_logging import log_structured
 
+# data_source.source value for everything imported from an Apple Health XML export.
+# Record, workout and ActivitySummary writers must all use it so they resolve to one
+# no-device data_source (unique identity includes `source`).
+APPLE_HEALTH_XML_SOURCE = "apple_health_xml"
+
 
 class XMLService:
     def __init__(self, path: Path, log: Logger):
@@ -211,7 +216,7 @@ class XMLService:
             id=uuid4(),
             external_id=None,
             user_id=user_id,
-            source="apple_health_xml",
+            source=APPLE_HEALTH_XML_SOURCE,
             device_model=device_info.device_model,
             software_version=device_info.device_software_version,
             recorded_at=document["startDate"],
@@ -256,7 +261,7 @@ class XMLService:
             end_datetime=document["endDate"],
             external_id=None,
             id=workout_id,
-            source="apple_health_xml",
+            source=APPLE_HEALTH_XML_SOURCE,
             user_id=user_id,
         )
 
